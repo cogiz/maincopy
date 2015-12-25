@@ -1,0 +1,235 @@
+#!/bin/bash
+
+# Date="December 20, 2015"
+# Author/Constructor="Steve Sullivan"
+
+################################
+#                              #
+#           MAINCOPY           #
+#                              #
+################################
+
+# This script is designed to copy the Main
+# Movie from a DVD. It will extract the Video
+# and Audio and Subtitle Streams seperately,
+# then resize (if needed) the Video stream so
+# that when you put them all back together, you
+# will end up with an MPEG file that will fit on
+# a standard 4.7g blank DVD disc and be playable
+# on any standalone DVD player.
+
+# You will need the following packages and all
+# necessary dependencies installed before beginning:
+
+# Vobcopy
+# Transcode (suite)
+# Subtitleripper (mjpeg tools)
+# Subtitle2pgm
+# M2VRequantiser
+# Tovid (suite)
+# DVDauthor
+# Genisoimage
+# Growisofs (burning software)
+
+# Before beginning this script you must copy it to your $BIN
+# Directory, then make it executable. Create a new folder
+# called "DVD" in your $HOME Directory and navigate to it.
+
+# To run the script type "maincopy" (without quotes).
+# You will need to know which Title you wish to copy -
+# use ( vobcopy -I ).
+
+####### SCRIPT #######
+
+ set -e
+name=$name
+file=$1
+file2=$2
+file3=$3
+file4=$4
+file5=$5
+file6=$6
+file7=$7
+file8=$8
+dvddevice='/dev/sr0'
+
+# This is where you type the
+# name of the DVD using _ to connect
+# words if more than one.
+
+echo
+echo 
+read -p        "           What is the Name of this DVD?: " name
+
+# This tells the computer which Title is
+# the Main Movie. To check use vobcopy -I
+# from terminal.
+
+echo
+echo
+read -p        "           Which Title do you wish to copy?: " number
+echo
+
+# This starts the copying process of the
+# Main Movie to the HDD.
+
+echo
+echo "           Copying Title $file ..."
+echo
+
+tccat -i /dev/sr0 -T $number,-1 > movie.vob -d 2
+
+echo
+eject /dev/sr0
+
+# This is where the extraction of the Video file starts.
+
+echo
+echo "           Extracting Mpeg2 Video File $file2 ..."
+echo
+tcextract -i movie.vob -t vob -x mpeg2 > movie.m2v -d 2
+
+X=/home/cogiz/DVD/movie.m2v
+XS=$(stat -c %s $X)
+
+# This is where the extraction of the Audio file starts.
+
+echo
+echo "           Extracting ac3 Audio File $file3 ..."
+echo
+tcextract -i movie.vob -a 0 -x ac3 -t vob > movie.ac3 -d 2
+
+Y=/home/cogiz/DVD/movie.ac3
+YS=$(stat -c %s $Y)
+
+# This is where the .vob file is scanned for any
+# Subtitle Streams and extracted if detected ...not
+# all DVD's have them.
+
+echo
+echo "           Scanning for Subtitle Streams ..."
+echo
+
+S="subtitle(s)"
+S2="0"
+
+echo
+touch /home/cogiz/DVD/scan.txt
+tcprobe -i /home/cogiz/DVD/movie.vob -H 100 > scan.txt
+
+if grep -w "$S" scan.txt ; then
+clear
+    echo
+    echo "           Subtitle Stream Found"
+else
+clear
+    echo
+    echo "           No Subtitle Stream Found"
+    source /bin/maincopynosub maincopynosub
+    exit
+fi
+
+echo
+echo "           Extracting Subtitle Files ..."
+echo
+tcextract -x ps1 -t vob -a 0X20 -i movie.vob | subtitle2pgm -g 5 -t 1
+cat *.png > subs
+
+Z=/home/cogiz/DVD/subs
+ZS=$(stat -c %s $Z)
+echo
+echo
+
+# This is where all the math happens and
+# the Shrinkfactor is calculated. It is the
+# most important part of this script.
+
+echo
+echo "           Calculating ..."
+echo
+echo "           The size of the Mpeg2 Video File is $XS bytes"
+echo
+echo "           The size of the ac3 Audio File is $YS bytes"
+echo 
+echo "           The total size of all Subtitles is $ZS bytes"
+echo
+
+F=$(( $YS + $ZS ))
+F2=$(( 4589843750 - $F ))
+expr "scale=6;($XS/$F2)"|bc > shrinkfactor
+SF=$(<shrinkfactor)
+
+if [ "$XS" -lt "$F2" ]; then
+      echo "           No Shrink Factor Needed, using 1:1 ratio"
+      NOSHRINK=1
+      else
+      NOSHRINK=0
+fi
+
+if [ "$XS" -gt "$F2" ]; then
+      echo "           THE SHRINK FACTOR IS $SF"
+      SHRINK=0
+fi
+
+echo
+echo "           Copying Mpeg2 Video File $file4 ..."
+echo
+
+M2VRequantiser $SF $XS < movie.m2v > movie1.m2v
+
+# This is where the new shrinked video file is joined
+# back up with the ac3 Audio file.
+
+echo
+echo "                 Multiplexing $file5 ..."
+echo
+
+mplex -f 8 -M -o final.mpg movie1.m2v movie.ac3
+
+# some files can now be deleted to avoid problems when
+# adding Subtitles.
+
+rm /home/cogiz/DVD/scan.txt
+rm /home/cogiz/DVD/subs
+rm /home/cogiz/DVD/shrinkfactor
+
+# Now the Subtitles are added to the new Mpeg file.
+
+echo
+echo "                 Adding Subtitles $file6 ..."
+echo
+
+spumux -m dvd movie_subtitle.dvdxml < final.mpg > finaldvd.mpg
+
+# Now the DVD structure needs to be created so that when you
+# insert the DVD into a DVD player, the disc gets scanned and
+# instructions are fed to the player and the movie plays.
+
+echo
+echo "                 Creating DVD Structure $file7 ..."
+echo
+
+tovid disc -files /home/cogiz/DVD/finaldvd.mpg -no-menu -aspect 16:9 -out $name
+
+# This is where an ISO image file is created. This is the end product
+# that can now be burned with your burning software.
+
+echo
+echo "                 Generating ISO Image File $file8 ..."
+echo
+
+genisoimage -dvd-video -V $name -o /home/cogiz/Videos/$name.ISO /home/cogiz/DVD/$name
+
+echo
+echo "        YOUR DVD HAS BEEN COPIED AND IS NOW READY TO BE BURNED ... ENJOY!"
+echo
+
+# This is the cleanup section where all the files created
+# during this processs are now deleted except for the ISO
+# image file. Now the script can be run again with a clean
+# slate.
+
+find . -type f -delete
+rm -R -f /home/cogiz/DVD/$name
+
+
