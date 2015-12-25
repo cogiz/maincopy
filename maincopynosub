@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# Date="December 23, 2015"
+# Author/Constructor="Steve Sullivan"
+
+#######################
+#                     #
+#    MAINCOPYNOSUB    #
+#                     #
+#######################
+
+# This is basically a separate script running
+# inside the first one (maincopy). This one will only run
+# if there are no Subtitles detected in the main
+# movie. It should be in the same Directory as "maincopy" 
+# and made executable.
+
+# This one is called "maincopynosub" and is
+# executed automatically when no Subtitles
+# have been detected. The Shrinkfactor is
+# calculated with a value of 0 as the
+# Subtitle size. All the math is done here
+# and is the most important part of this script.
+
+echo
+echo "           Calculating  ..."
+echo
+echo "           The size of the Mpeg2 Video File is $XS bytes"
+echo 
+echo "           The size of the ac3 file is $YS bytes"
+echo
+echo "           The total size of Subtitles is $S2 bytes"
+echo
+   
+F=$(( $YS + $S2 ))
+F2=$(( 4589843750 - $F ))
+expr "scale=6;($XS/$F2)"|bc > shrinkfactor
+SF=$(<shrinkfactor)
+
+if [ "$XS" -lt "$F2" ]; then
+      echo "           No Shrink Factor Needed, using 1:1 ratio"
+      NOSHRINK=1
+      else
+      NOSHRINK=0
+fi
+ 
+if [ "$XS" -gt "$F2" ]; then
+      echo "           THE SHRINK FACTOR IS $SF"                
+      SHRINK=0 
+fi
+
+# This is where the new (shrinked) Mpeg2 video file
+# is created. If no shrinkfactor is needed then a 1:1
+# copy is produced...(after much thought this was the
+# easiest way).
+        
+echo
+echo "           Copying Mpeg2 Video file..."
+echo
+M2VRequantiser $SF $XS < movie.m2v > movie1.m2v
+
+
+# this part is where the new (shrinked) video file
+# is joined back up with the audio file.
+
+echo
+echo "           Multiplexing $file5 ..."
+echo
+mplex -f 8 -M -o final.mpg movie1.m2v movie.ac3
+
+# Now the files needed to calculate the shrinkfactor
+# can be removed so they don't complicate things
+# during the remuxing.
+
+rm /home/cogiz/DVD/shrinkfactor
+
+# This section creates the DVD structure
+# so that when you put the finished
+# product in a DVD player, it will read it
+# properly and play the movie.
+
+echo
+echo "           Creating DVD Structure $file6 ..."
+echo
+tovid disc -files /home/cogiz/DVD/final.mpg -no-menu -aspect 16:9 -out $name
+
+# this generates an ISO image file which can
+# now be burned with your favorite 
+# Burning Software.
+
+echo
+echo "           Generating ISO Image File $file7.."
+echo
+genisoimage -dvd-video -V $name -o /home/cogiz/Videos/$name.ISO /home/cogiz/DVD/$name
+
+echo
+echo
+echo "         YOUR DVD HAS BEEN COPIED AND IS NOW READY TO BE BURNED...ENJOY!"
+echo
+echo
+
+# The copying process is now complete so all files and 
+# directories can now be deleted so that a new DVD can
+# be inserted and the process can be rerun.
+
+find . -type f -delete
+rm -R -f /home/cogiz/DVD/$name
+
+
+
+
+
